@@ -1,5 +1,5 @@
 export * from './queryBuilder'
-export * from './directives'
+export * from './annotations'
 export * from './types'
 export * from './client'
 export { default as Knex } from 'knex'

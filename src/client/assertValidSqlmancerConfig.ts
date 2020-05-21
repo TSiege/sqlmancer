@@ -45,7 +45,7 @@ function assertValidCustomScalarMap({ customScalarMap }: SqlmancerConfig): void 
 
 function assertValidModels({ models }: SqlmancerConfig): void {
   Object.keys(models).forEach((modelName) => {
-    const { tableName, cte, readOnly, associations } = models[modelName]
+    const { tableName, cte, readOnly, primaryKey, associations } = models[modelName]
     if (!tableName && !cte) {
       throw new SqlmancerConfigError(`Model ${modelName} should include either a table name or a CTE`)
     }
@@ -54,6 +54,9 @@ function assertValidModels({ models }: SqlmancerConfig): void {
     }
     if (cte && readOnly === false) {
       throw new SqlmancerConfigError(`Model ${modelName} cannot be read-only if it includes a CTE`)
+    }
+    if (!primaryKey) {
+      throw new SqlmancerConfigError(`Model ${modelName} needs to specify a primary key`)
     }
     Object.keys(associations).forEach((associationName) => {
       const { on, through } = associations[associationName]

@@ -1,7 +1,7 @@
 import { withDialects, mockResolveInfo } from '../../__tests__/utilities'
 
 describe('FindByIdBuilder', () => {
-  withDialects((client, _rollback, schema) => {
+  withDialects((client, _rollback, _typeDefs, schema) => {
     describe('basic queries', () => {
       test('no additional options', async () => {
         const builder = client.models.Actor.findById(10)
@@ -306,7 +306,7 @@ describe('FindByIdBuilder', () => {
 
       test('valid path', async () => {
         const query = `mutation {
-          createCustomerWithPayload {
+          createCustomerWithPayload(input: { firstName: "", lastName: "", email: "" }) {
             customer {
               id
               email

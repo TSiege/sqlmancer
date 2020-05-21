@@ -1,3 +1,4 @@
 export * from './createSqlmancerClient'
+export * from './transformSchema'
 export * from './getSqlmancerConfig'
-export * from './assertValidSqlmancerConfig'
+export * from './makeSqlmancerSchema'

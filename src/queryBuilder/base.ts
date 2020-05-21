@@ -226,7 +226,7 @@ export abstract class BaseBuilder {
 
   protected _getFieldWhereExpression(
     field: string,
-    operatorAndValue: WhereFields<any, any, any, any>[string],
+    operatorAndValue: any,
     modelName: string,
     tableAlias: string,
     aggregateKey?: keyof AggregateFields

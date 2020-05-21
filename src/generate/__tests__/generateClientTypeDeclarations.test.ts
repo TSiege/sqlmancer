@@ -3,10 +3,10 @@ import { generateClientTypeDeclarations } from '../generateClientTypeDeclaration
 import { withDialects } from '../../__tests__/utilities'
 
 describe('generateClientTypeDeclarations', () => {
-  withDialects((_client, _rollback, schema) => {
+  withDialects((_client, _rollback, typeDefs) => {
     test('correct usage', async () => {
       const stream = new BufferWritableMock()
-      generateClientTypeDeclarations(schema, stream)
+      generateClientTypeDeclarations(typeDefs, stream)
       stream.end()
       await new Promise((resolve, reject) => {
         stream.on('finish', () => {

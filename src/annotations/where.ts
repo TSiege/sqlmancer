@@ -1,56 +1,64 @@
 import _ from 'lodash'
+import { BaseAnnotation } from './base'
+import { AnnotationLocation, Field, Association, SqlmancerConfig } from '../types'
 import {
-  GraphQLEnumType,
-  GraphQLField,
-  GraphQLFloat,
   GraphQLInputObjectType,
-  GraphQLInputFieldConfigMap,
+  GraphQLString,
   GraphQLInputFieldMap,
-  GraphQLInputType,
   GraphQLInt,
   GraphQLList,
   GraphQLNonNull,
-  GraphQLString,
+  GraphQLInputType,
+  GraphQLFloat,
+  GraphQLSchema,
+  GraphQLEnumType,
+  GraphQLInputFieldConfigMap,
+  GraphQLField,
+  GraphQLObjectType,
 } from 'graphql'
-import { SchemaDirectiveVisitor } from 'graphql-tools'
 import { unwrap } from '../utilities'
-import { getSqlmancerConfig } from '../client'
-import { Association, Field, SqlmancerConfig } from '../types'
 
-export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
-  private config: SqlmancerConfig
+export type WhereAnnotiationArgs = {
+  model?: string
+}
 
-  constructor(config: any) {
-    super(config)
-    this.config = getSqlmancerConfig(this.schema)
+export class WhereAnnotiation extends BaseAnnotation<WhereAnnotiationArgs | undefined> {
+  argsType = new GraphQLInputObjectType({ name: 'args', fields: { model: { type: GraphQLString } } })
+  locations: AnnotationLocation[] = ['FIELD_DEFINITION']
+
+  applyToField(
+    config: SqlmancerConfig,
+    field: GraphQLField<any, any>,
+    _object: GraphQLObjectType,
+    schema: GraphQLSchema
+  ) {
+    const modelName = this.args?.model || unwrap(field.type).name
+    const type = this.getInputType(modelName, false, schema, config)!
+
+    field.args = [
+      ...field.args,
+      {
+        name: 'where',
+        type,
+        description: '',
+        defaultValue: undefined,
+        extensions: undefined,
+        astNode: undefined,
+      },
+    ]
   }
 
-  visitFieldDefinition(field: GraphQLField<any, any>): GraphQLField<any, any> {
-    const modelName = this.args.model || unwrap(field.type).name
-    const type = this.getInputType(modelName, false)!
-
-    return {
-      ...field,
-      args: [
-        ...field.args,
-        {
-          name: 'where',
-          type,
-          description: '',
-          defaultValue: undefined,
-          extensions: undefined,
-          astNode: undefined,
-        },
-      ],
-    }
-  }
-
-  private getInputType(modelName: string, withAggregateFields: boolean): GraphQLInputObjectType | undefined {
+  private getInputType(
+    modelName: string,
+    withAggregateFields: boolean,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
+  ): GraphQLInputObjectType | undefined {
     const typeName = this.getInputName(modelName, withAggregateFields)
-    let type = this.schema.getType(typeName) as GraphQLInputObjectType | undefined
+    let type = schema.getType(typeName) as GraphQLInputObjectType | undefined
 
     if (!type) {
-      type = this.createInputType(modelName, withAggregateFields)
+      type = this.createInputType(modelName, withAggregateFields, schema, config)
     }
 
     return type
@@ -60,8 +68,13 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
     return `${modelName}Where${withAggregateFields ? 'WithAggregateFields' : ''}`
   }
 
-  private createInputType(modelName: string, withAggregateFields: boolean): GraphQLInputObjectType | undefined {
-    const { models } = this.config
+  private createInputType(
+    modelName: string,
+    withAggregateFields: boolean,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
+  ): GraphQLInputObjectType | undefined {
+    const { models } = config
     const model = models[modelName]
 
     if (!model) {
@@ -71,39 +84,47 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
     const typeName = this.getInputName(modelName, withAggregateFields)
     const inputType: GraphQLInputObjectType = new GraphQLInputObjectType({
       name: typeName,
-      fields: this.getColumnFields(model.fields),
+      fields: this.getColumnFields(model.fields, schema, config),
     })
-    this.schema.getTypeMap()[typeName] = inputType
+    schema.getTypeMap()[typeName] = inputType
     Object.assign(inputType.getFields(), {
-      ...this.getLogicalOperatorFields(withAggregateFields ? this.getInputType(modelName, false)! : inputType),
-      ...this.getAssociationFields(model.associations),
-      ...(withAggregateFields ? this.getAggregateFields(modelName, model.fields) : {}),
+      ...this.getLogicalOperatorFields(
+        withAggregateFields ? this.getInputType(modelName, false, schema, config)! : inputType
+      ),
+      ...this.getAssociationFields(model.associations, schema, config),
+      ...(withAggregateFields ? this.getAggregateFields(modelName, model.fields, schema, config) : {}),
     })
 
     return inputType
   }
 
-  private getColumnFields(fields: Record<string, Field>): GraphQLInputFieldConfigMap {
+  private getColumnFields(
+    fields: Record<string, Field>,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
+  ): GraphQLInputFieldConfigMap {
     return Object.keys(fields).reduce((acc, fieldName) => {
       const field = fields[fieldName]
-      const operatorType = this.getOperatorType(field)
+      const operatorType = this.getOperatorType(field, schema, config)
       if (!field.isPrivate && operatorType) {
         acc[fieldName] = { type: operatorType }
-        this.schema.getTypeMap()[operatorType.name] = operatorType
+        schema.getTypeMap()[operatorType.name] = operatorType
       }
       return acc
     }, {} as GraphQLInputFieldConfigMap)
   }
 
-  private getOperatorType({
-    mappedType,
-    type,
-  }: Pick<Field, 'mappedType' | 'type'>): GraphQLInputObjectType | undefined {
+  private getOperatorType(
+    { mappedType, type }: Pick<Field, 'mappedType' | 'type'>,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
+  ): GraphQLInputObjectType | undefined {
+    const { dialect } = config
     const unwrappedType = unwrap(type)
     const isList = mappedType.substring(mappedType.length - 2) === '[]'
     const typeName = `${unwrappedType.name}${isList ? 'List' : ''}Operators`
 
-    let operatorType = this.schema.getType(typeName) as GraphQLInputObjectType
+    let operatorType = schema.getType(typeName) as GraphQLInputObjectType
 
     if (!operatorType) {
       let fields = null
@@ -128,9 +149,9 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
             ...getNumericOperatorsTypeFields(GraphQLString),
             ...getInOperatorsTypeFields(GraphQLString),
             ...getTextOperatorsTypeFields(GraphQLString),
-            ...(this.config.dialect === 'postgres' ? getCaseInsensitiveTextOperatorsTypeFields(GraphQLString) : {}),
+            ...(dialect === 'postgres' ? getCaseInsensitiveTextOperatorsTypeFields(GraphQLString) : {}),
           }
-        } else if (this.config.dialect !== 'sqlite' && mappedType === 'JSON') {
+        } else if (dialect !== 'sqlite' && mappedType === 'JSON') {
           fields = {
             ...getEqualOperatorsTypeFields(GraphQLString),
             contains: {
@@ -157,21 +178,25 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
           name: typeName,
           fields,
         })
-        this.schema.getTypeMap()[typeName] = operatorType
+        schema.getTypeMap()[typeName] = operatorType
       }
     }
 
     return operatorType
   }
 
-  private getAssociationFields(associations: Record<string, Association>): GraphQLInputFieldMap {
+  private getAssociationFields(
+    associations: Record<string, Association>,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
+  ): GraphQLInputFieldMap {
     return Object.keys(associations).reduce((acc, associationName) => {
       const { modelName, isMany, isPrivate } = associations[associationName]
 
       if (!isPrivate) {
         acc[associationName] = {
           name: associationName,
-          type: this.getInputType(modelName, isMany)!,
+          type: this.getInputType(modelName, isMany, schema, config)!,
           extensions: undefined,
         }
       }
@@ -209,7 +234,12 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
     }
   }
 
-  private getAggregateFields(modelName: string, fields: Record<string, Field>): GraphQLInputFieldMap {
+  private getAggregateFields(
+    modelName: string,
+    fields: Record<string, Field>,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
+  ): GraphQLInputFieldMap {
     const fieldsByAggregateFunction = Object.keys(fields).reduce(
       (acc, fieldName) => {
         const { mappedType, isPrivate } = fields[fieldName]
@@ -236,9 +266,9 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
             const field = fields[aggregateFieldName]
             const type =
               aggregateFieldName === 'avg' || aggregateFieldName === 'sum'
-                ? this.getOperatorType({ mappedType: 'number', type: GraphQLFloat })!
-                : this.getOperatorType(field)!
-            this.schema.getTypeMap()[type.name] = type
+                ? this.getOperatorType({ mappedType: 'number', type: GraphQLFloat }, schema, config)!
+                : this.getOperatorType(field, schema, config)!
+            schema.getTypeMap()[type.name] = type
             return {
               [aggregateFieldName]: {
                 name: aggregateFieldName,
@@ -249,7 +279,7 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
             }
           }, {} as GraphQLInputFieldMap),
         })
-        this.schema.getTypeMap()[typeName] = type
+        schema.getTypeMap()[typeName] = type
 
         acc[agggregateFunctionName] = {
           name: agggregateFunctionName,
@@ -264,7 +294,7 @@ export class WhereDirective extends SchemaDirectiveVisitor<any, any> {
       ...aggregateFields,
       count: {
         name: 'count',
-        type: this.getOperatorType({ mappedType: 'number', type: GraphQLInt })!,
+        type: this.getOperatorType({ mappedType: 'number', type: GraphQLInt }, schema, config)!,
         extensions: undefined,
       },
     }

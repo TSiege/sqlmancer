@@ -1,56 +1,62 @@
 import _ from 'lodash'
+import { BaseAnnotation } from './base'
+import { AnnotationLocation, Field, Association, SqlmancerConfig } from '../types'
 import {
-  GraphQLEnumType,
-  GraphQLField,
   GraphQLInputObjectType,
-  GraphQLInputFieldConfigMap,
-  GraphQLInputFieldMap,
+  GraphQLString,
+  GraphQLField,
+  GraphQLObjectType,
+  GraphQLSchema,
   GraphQLList,
   GraphQLNonNull,
+  GraphQLInputFieldConfigMap,
+  GraphQLInputFieldMap,
+  GraphQLEnumType,
 } from 'graphql'
-import { SchemaDirectiveVisitor } from 'graphql-tools'
 import { makeNullable, unwrap } from '../utilities'
-import { getSqlmancerConfig } from '../client'
-import { Association, Field, SqlmancerConfig } from '../types'
 
-export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
-  private config: SqlmancerConfig
+export type OrderByAnnotiationArgs = {
+  model?: string
+}
 
-  constructor(config: any) {
-    super(config)
-    this.config = getSqlmancerConfig(this.schema)
-  }
+export class OrderByAnnotiation extends BaseAnnotation<OrderByAnnotiationArgs | undefined> {
+  argsType = new GraphQLInputObjectType({ name: 'args', fields: { model: { type: GraphQLString } } })
+  locations: AnnotationLocation[] = ['FIELD_DEFINITION']
 
-  visitFieldDefinition(field: GraphQLField<any, any>): GraphQLField<any, any> {
-    const modelName = this.args.model || unwrap(field.type).name
-    const type = this.getInputType(modelName, true, false)!
+  applyToField(
+    config: SqlmancerConfig,
+    field: GraphQLField<any, any>,
+    _object: GraphQLObjectType,
+    schema: GraphQLSchema
+  ) {
+    const modelName = this.args?.model || unwrap(field.type).name
+    const type = this.getInputType(modelName, true, false, schema, config)!
 
-    return {
-      ...field,
-      args: [
-        ...field.args,
-        {
-          name: 'orderBy',
-          type: new GraphQLList(new GraphQLNonNull(type)),
-          description: '',
-          defaultValue: undefined,
-          extensions: undefined,
-          astNode: undefined,
-        },
-      ],
-    }
+    field.args = [
+      ...field.args,
+      {
+        name: 'orderBy',
+        type: new GraphQLList(new GraphQLNonNull(type)),
+        description: '',
+        defaultValue: undefined,
+        extensions: undefined,
+        astNode: undefined,
+      },
+    ]
   }
 
   private getInputType(
     modelName: string,
     includeAssociations: boolean,
-    aggregateFieldsOnly: boolean
+    aggregateFieldsOnly: boolean,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
   ): GraphQLInputObjectType | undefined {
     const typeName = this.getInputName(modelName, includeAssociations, aggregateFieldsOnly)
-    let type = this.schema.getTypeMap()[typeName] as GraphQLInputObjectType | undefined
+    let type = schema.getTypeMap()[typeName] as GraphQLInputObjectType | undefined
 
     if (!type) {
-      type = this.createInputType(modelName, includeAssociations, aggregateFieldsOnly)
+      type = this.createInputType(modelName, includeAssociations, aggregateFieldsOnly, schema, config)
     }
 
     return type
@@ -67,9 +73,11 @@ export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
   private createInputType(
     modelName: string,
     includeAssociations: boolean,
-    aggregateFieldsOnly: boolean
+    aggregateFieldsOnly: boolean,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
   ): GraphQLInputObjectType | undefined {
-    const { models } = this.config
+    const { models } = config
     const model = models[modelName]
 
     if (!model) {
@@ -81,22 +89,22 @@ export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
     const inputType: GraphQLInputObjectType = new GraphQLInputObjectType({
       name: typeName,
       fields: aggregateFieldsOnly
-        ? this.getAggregateFields(modelName, model.fields)
-        : this.getColumnFields(model.fields),
+        ? this.getAggregateFields(modelName, model.fields, schema)
+        : this.getColumnFields(model.fields, schema),
     })
-    this.schema.getTypeMap()[typeName] = inputType
+    schema.getTypeMap()[typeName] = inputType
     Object.assign(inputType.getFields(), {
-      ...(includeAssociations ? this.getAssociationFields(model.associations) : {}),
+      ...(includeAssociations ? this.getAssociationFields(model.associations, schema, config) : {}),
     })
 
     return inputType
   }
 
-  private getColumnFields(fields: Record<string, Field>): GraphQLInputFieldConfigMap {
+  private getColumnFields(fields: Record<string, Field>, schema: GraphQLSchema): GraphQLInputFieldConfigMap {
     return Object.keys(fields).reduce((acc, fieldName) => {
       const field = fields[fieldName]
       if (!field.isPrivate && this.isSortableField(field)) {
-        acc[fieldName] = { type: this.getSortDirectionEnum() }
+        acc[fieldName] = { type: this.getSortDirectionEnum(schema) }
       }
       return acc
     }, {} as GraphQLInputFieldConfigMap)
@@ -117,8 +125,8 @@ export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
     return false
   }
 
-  private getSortDirectionEnum() {
-    let type = this.schema.getType('SortDirection')
+  private getSortDirectionEnum(schema: GraphQLSchema) {
+    let type = schema.getType('SortDirection')
 
     if (!type) {
       type = new GraphQLEnumType({
@@ -129,20 +137,24 @@ export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
         },
       })
 
-      this.schema.getTypeMap().SortDirection = type
+      schema.getTypeMap().SortDirection = type
     }
 
     return type as GraphQLEnumType
   }
 
-  private getAssociationFields(associations: Record<string, Association>): GraphQLInputFieldMap {
+  private getAssociationFields(
+    associations: Record<string, Association>,
+    schema: GraphQLSchema,
+    config: SqlmancerConfig
+  ): GraphQLInputFieldMap {
     return Object.keys(associations).reduce((acc, associationName) => {
       const { modelName, isMany, isPrivate } = associations[associationName]
 
       if (!isPrivate) {
         acc[associationName] = {
           name: associationName,
-          type: this.getInputType(modelName, false, isMany)!,
+          type: this.getInputType(modelName, false, isMany, schema, config)!,
           extensions: undefined,
         }
       }
@@ -151,7 +163,11 @@ export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
     }, {} as GraphQLInputFieldMap)
   }
 
-  private getAggregateFields(modelName: string, fields: Record<string, Field>): GraphQLInputFieldConfigMap {
+  private getAggregateFields(
+    modelName: string,
+    fields: Record<string, Field>,
+    schema: GraphQLSchema
+  ): GraphQLInputFieldConfigMap {
     const fieldsByAggregateFunction = Object.keys(fields).reduce(
       (acc, fieldName) => {
         const { mappedType, isPrivate } = fields[fieldName]
@@ -177,13 +193,13 @@ export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
           fields: fieldsByAggregateFunction[aggregateFunctionName].reduce((acc, fieldName) => {
             return {
               [fieldName]: {
-                type: this.getSortDirectionEnum(),
+                type: this.getSortDirectionEnum(schema),
               },
               ...acc,
             }
           }, {} as GraphQLInputFieldConfigMap),
         })
-        this.schema.getTypeMap()[typeName] = type
+        schema.getTypeMap()[typeName] = type
 
         acc[aggregateFunctionName] = {
           type,
@@ -195,7 +211,7 @@ export class OrderByDirective extends SchemaDirectiveVisitor<any, any> {
     return {
       ...aggregateFields,
       count: {
-        type: this.getSortDirectionEnum(),
+        type: this.getSortDirectionEnum(schema),
       },
     }
   }

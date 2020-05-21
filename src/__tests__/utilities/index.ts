@@ -1,4 +1,4 @@
-import { execute, parse, GraphQLSchema, GraphQLResolveInfo } from 'graphql'
+import { execute, parse, DocumentNode, GraphQLResolveInfo, GraphQLSchema } from 'graphql'
 import { applyMiddleware } from 'graphql-middleware'
 
 import { BaseBuilder } from '../..'
@@ -23,15 +23,18 @@ export function withDialects(
   fn: (
     client: SqlmancerClient,
     rollback: (builder: BaseBuilder, fn: (result: any) => void) => Promise<void>,
+    typeDefs: DocumentNode,
     schema: GraphQLSchema
   ) => void
 ) {
   dialectsToTest.forEach((name) => {
     const client = require(`../${name}/client`).client as SqlmancerClient
+    const typeDefs = require(`../${name}/schema`).typeDefs as DocumentNode
     const schema = require(`../${name}/schema`).schema as GraphQLSchema
+
     // eslint-disable-next-line jest/valid-title
     describe(name, () => {
-      fn(client, getRollback(client), schema)
+      fn(client, getRollback(client), typeDefs, schema)
 
       afterAll(async () => {
         await client.destroy()

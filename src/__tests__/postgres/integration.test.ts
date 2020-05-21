@@ -1,6 +1,7 @@
 /* eslint-disable no-useless-escape */
 import { graphql, validateSchema } from 'graphql'
-import { schema, client } from './schema'
+import { schema } from './schema'
+import { client } from './client'
 
 describe('integration (postgres)', () => {
   afterAll(async () => {

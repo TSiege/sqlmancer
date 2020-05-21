@@ -1,4 +1,5 @@
 import Knex = require('knex')
+import { GraphQLOutputType } from 'graphql'
 import {
   FindBuilder,
   FindByIdBuilder,
@@ -12,7 +13,6 @@ import {
   UpdateByIdBuilder,
   UpdateManyBuilder,
 } from './queryBuilder'
-import { GraphQLOutputType } from 'graphql'
 
 export type ID = number | string
 
@@ -453,3 +453,34 @@ export type FromPaginateBuilder<T> = T extends PaginateBuilder<
 >
   ? { [Key in keyof TResult]: Key extends 'results' ? (TSelected & TRawSelected & TLoaded)[] : TResult[Key] }
   : never
+
+export type GenericSqlmancerClient = Knex & {
+  models: Record<
+    string,
+    {
+      findById: (id: ID) => FindByIdBuilder<any, any, any, any, any, any, any>
+      findMany: () => FindManyBuilder<any, any, any, any, any, any, any, any>
+      findOne: () => FindOneBuilder<any, any, any, any, any, any, any, any>
+      paginate: () => PaginateBuilder<any, any, any, any, any, any, any, any, any>
+      createMany?: (input: Array<any>) => CreateManyBuilder<any>
+      createOne?: (input: any) => CreateOneBuilder<any>
+      deleteById?: (id: ID) => DeleteByIdBuilder
+      deleteMany?: () => DeleteManyBuilder<any, any, any, any, any>
+      updateById?: (id: ID, input: any) => UpdateByIdBuilder<any>
+      updateMany?: (input: any) => UpdateManyBuilder<any, any, any, any, any, any>
+    }
+  >
+}
+
+export type AnnotationLocation =
+  | 'SCHEMA'
+  | 'OBJECT'
+  | 'FIELD_DEFINITION'
+  | 'ARGUMENT_DEFINITION'
+  | 'INTERFACE'
+  | 'UNION'
+  | 'ENUM'
+  | 'ENUM_VALUE'
+  | 'INPUT_OBJECT'
+  | 'INPUT_FIELD_DEFINITION'
+  | 'SCALAR'

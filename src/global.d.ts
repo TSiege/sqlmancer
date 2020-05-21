@@ -1,1 +1,1 @@
-import 'jest-extended'
+declare module 'safe-eval'

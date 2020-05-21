@@ -1,6 +1,5 @@
 import _ from 'lodash'
 import { isListType, isObjectType, GraphQLCompositeType, GraphQLSchema, isEnumType } from 'graphql'
-import { getDirectives } from '@graphql-toolkit/common'
 
 import {
   CreateOneBuilder,
@@ -24,8 +23,7 @@ import {
   PossibleScalarTypes,
   SqlmancerConfig,
 } from '../types'
-import { unwrap } from '../utilities/unwrap'
-import { makeNullable } from '../utilities/makeNullable'
+import { makeNullable, parseAnnotations, unwrap } from '../utilities'
 import { assertValidSqlmancerConfig } from './assertValidSqlmancerConfig'
 
 const cache = new WeakMap()
@@ -36,21 +34,23 @@ export function getSqlmancerConfig(schema: GraphQLSchema): SqlmancerConfig {
     return cached
   }
 
-  const { sqlmancer: sqlmancerDirective } = getDirectives(schema, schema.getQueryType())
+  const {
+    annotations: { sqlmancer: sqlmancerAnnotation },
+  } = parseAnnotations(schema.getQueryType()?.description)
 
-  if (!sqlmancerDirective) {
+  if (!sqlmancerAnnotation) {
     throw new Error(
-      'Unable to parse Sqlmancer configuration from type definitions. Did you include the @sqlmancer directive on your Query type?'
+      'Unable to parse Sqlmancer configuration from schema. Did you include the @sqlmancer annotation on your Query type?'
     )
   }
 
-  const customScalarMap = getScalarMap(sqlmancerDirective.customScalars)
-  const dialect = _.lowerCase(sqlmancerDirective.dialect) as Dialect
+  const customScalarMap = getScalarMap(sqlmancerAnnotation.args.customScalars)
+  const dialect = _.lowerCase(sqlmancerAnnotation.args.dialect) as Dialect
 
   const config = {
-    ...sqlmancerDirective,
+    ...sqlmancerAnnotation.args,
     dialect,
-    models: getModels(schema, dialect, sqlmancerDirective.transformFieldNames, customScalarMap),
+    models: getModels(schema, dialect, sqlmancerAnnotation.args.transformFieldNames, customScalarMap),
     customScalarMap,
   }
   cache.set(schema, config)
@@ -99,9 +99,11 @@ export function getModels(
 ): Models {
   const models = Object.keys(schema.getTypeMap()).reduce((acc, typeName) => {
     const type = schema.getType(typeName)! as GraphQLCompositeType
-    const { model: modelDirective } = getDirectives(schema, type)
-    if (modelDirective) {
-      const { table, cte, pk, include, readOnly } = modelDirective
+    const {
+      annotations: { model: modelAnnotation },
+    } = parseAnnotations(type.description)
+    if (modelAnnotation) {
+      const { table, cte, pk: primaryKey, include, readOnly } = modelAnnotation.args
       const isReadOnly = !!cte || readOnly
 
       const builders = {
@@ -189,7 +191,9 @@ export function getModels(
           const fieldNames = Object.keys(fieldMap)
           fieldNames.forEach((fieldName) => {
             const field = fieldMap[fieldName]
-            const { col, relate, depend, ignore, hasDefault, private: isPrivate } = getDirectives(schema, field)
+            const {
+              annotations: { col, relate, depend, ignore, hasDefault, private: isPrivate },
+            } = parseAnnotations(field.description)
 
             const unwrappedType = unwrap(field.type)
             const nullableType = makeNullable(field.type)
@@ -206,7 +210,7 @@ export function getModels(
 
               if (mappedType) {
                 acc.fields[fieldName] = {
-                  column: (col && col.name) || transformFieldName(fieldName, transformFieldNames),
+                  column: (col && col.args) || transformFieldName(fieldName, transformFieldNames),
                   mappedType,
                   type: field.type,
                   hasDefault: !!hasDefault,
@@ -219,12 +223,12 @@ export function getModels(
                 modelName: unwrappedType.name,
                 isMany: isList,
                 isPrivate: !!isPrivate,
-                on: relate.on,
-                through: relate.through,
-                pagination: relate.pagination,
+                on: relate.args.on,
+                through: relate.args.through,
+                pagination: relate.args.pagination,
               }
             } else if (depend) {
-              acc.dependencies[fieldName] = depend.on
+              acc.dependencies[fieldName] = depend.args
             }
           })
           return acc
@@ -232,8 +236,8 @@ export function getModels(
         {
           tableName: table,
           cte,
+          primaryKey,
           readOnly: isReadOnly,
-          primaryKey: pk,
           include: include || [],
           builders,
           fields: {},

@@ -1,52 +1,24 @@
 import _ from 'lodash'
 import Knex from 'knex'
+import { makeExecutableSchema } from 'graphql-tools'
 
-import {
-  CreateOneBuilder,
-  CreateManyBuilder,
-  DeleteByIdBuilder,
-  DeleteManyBuilder,
-  FindByIdBuilder,
-  FindOneBuilder,
-  FindManyBuilder,
-  PaginateBuilder,
-  UpdateByIdBuilder,
-  UpdateManyBuilder,
-} from '../queryBuilder'
-import { getSqlmancerConfig } from '.'
-import { makeSqlmancerSchema } from '../directives'
-import { ID } from '../types'
-import { getTypeDefsFromGlob } from '../generate/getTypeDefsFromGlob'
-
-type GenericSqlmancerClient = Knex & {
-  models: Record<
-    string,
-    {
-      findById: (id: ID) => FindByIdBuilder<any, any, any, any, any, any, any>
-      findMany: () => FindManyBuilder<any, any, any, any, any, any, any, any>
-      findOne: () => FindOneBuilder<any, any, any, any, any, any, any, any>
-      paginate: () => PaginateBuilder<any, any, any, any, any, any, any, any, any>
-      createMany?: (input: Array<any>) => CreateManyBuilder<any>
-      createOne?: (input: any) => CreateOneBuilder<any>
-      deleteById?: (id: ID) => DeleteByIdBuilder
-      deleteMany?: () => DeleteManyBuilder<any, any, any, any, any>
-      updateById?: (id: ID, input: any) => UpdateByIdBuilder<any>
-      updateMany?: (input: any) => UpdateManyBuilder<any, any, any, any, any, any>
-    }
-  >
-}
+import { getSqlmancerConfig } from './getSqlmancerConfig'
+import { GenericSqlmancerClient, ID } from '../types'
+import { getTypeDefsFromGlob } from '../generate'
 
 export function createSqlmancerClient<T extends GenericSqlmancerClient = GenericSqlmancerClient>(
   glob: string,
   knex: Knex
 ): T {
   const typeDefs = getTypeDefsFromGlob(glob)
-
   if (!typeDefs || !typeDefs.definitions.length) {
     throw new Error(`Found no files with valid type definitions using glob pattern "${glob}"`)
   }
 
-  const schema = makeSqlmancerSchema({ typeDefs })
+  const schema = makeExecutableSchema({
+    typeDefs,
+    resolverValidationOptions: { requireResolversForResolveType: false },
+  })
   const { dialect, models } = getSqlmancerConfig(schema)
 
   return Object.assign(knex, {

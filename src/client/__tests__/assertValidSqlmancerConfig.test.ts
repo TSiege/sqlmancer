@@ -8,6 +8,7 @@ describe('assertValidSqlmancerConfig', () => {
     models: {
       User: {
         tableName: 'users',
+        primaryKey: 'id',
         cte: undefined,
         readOnly: false,
         associations: {

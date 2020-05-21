@@ -9,8 +9,7 @@ import { createWriteStream } from 'fs'
 import { join, dirname } from 'path'
 
 import { generateClientTypeDeclarations, getTypeDefsFromGlob } from '../generate'
-import { makeSqlmancerSchema } from '../directives'
-import { DocumentNode, GraphQLSchema } from 'graphql'
+import { DocumentNode } from 'graphql'
 
 const pkg = require('../../package.json')
 
@@ -65,18 +64,6 @@ function generate(typeDefs: string, output: string): void {
     process.exit(1)
   }
 
-  let schema: GraphQLSchema
-
-  try {
-    schema = makeSqlmancerSchema({
-      typeDefs: documentNode,
-      resolverValidationOptions: { requireResolversForResolveType: false },
-    })
-  } catch (e) {
-    spinner.fail(`An error was encountered while building a schema from the provided type definitions:\n\n${e}\n`)
-    process.exit(1)
-  }
-
   const filePath = join(process.cwd(), output)
   const dirPath = dirname(filePath)
 
@@ -89,7 +76,7 @@ function generate(typeDefs: string, output: string): void {
   })
 
   try {
-    generateClientTypeDeclarations(schema, stream)
+    generateClientTypeDeclarations(documentNode, stream)
   } catch (e) {
     spinner.fail(`An error was encountered while generating the client:\n\n${e}\n`)
     process.exit(1)

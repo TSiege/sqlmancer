@@ -1,11 +1,14 @@
-import { isEnumType, GraphQLEnumType, GraphQLSchema, isNonNullType } from 'graphql'
+import { isEnumType, isNonNullType, GraphQLEnumType } from 'graphql'
+import { makeExecutableSchema, ITypeDefinitions } from 'graphql-tools'
 import { Writable } from 'stream'
 
 import { unwrap } from '../utilities'
-import { getSqlmancerConfig } from '../client'
+import { getSqlmancerConfig, transformSchema } from '../client'
 
-export function generateClientTypeDeclarations(schema: GraphQLSchema, stream: Writable): void {
-  const { dialect, models } = getSqlmancerConfig(schema)
+export function generateClientTypeDeclarations(typeDefs: ITypeDefinitions, stream: Writable): void {
+  const initialSchema = makeExecutableSchema({ typeDefs })
+  const { dialect, models } = getSqlmancerConfig(initialSchema)
+  const schema = transformSchema(initialSchema)
 
   stream.write(`import Knex from 'knex';
 import {
